@@ -1,0 +1,4 @@
+*.gb
+*.primary_counts.csv
+*.total_counts.csv
+*.unique_counts.csv
