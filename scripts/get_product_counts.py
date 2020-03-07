@@ -101,6 +101,18 @@ def main():
 
     os.makedirs(args.outdir, exist_ok=True)
 
+    samples = args.bam_files
+
+    # try to remove a common dirname
+    if len(set(os.path.split(bam)[0] for bam in args.bam_files)) == 1:
+        samples = [os.path.split(bam)[1] for bam in args.bam_files]
+        # try to remove a common file extension
+        if len(set(sample.split('.', 1)[1] for sample in samples)) == 1:
+            samples = [sample.split('.', 1)[0] for sample in samples]
+
+    count_types = [ "total_counts", "primary_counts", "unique_counts" ]
+    output_fields = [ "record_id", "start", "end", "strand", "product" ]
+
     with ExitStack() as stack:
 
         logging.debug("Opening GenBank file: {}".format(args.gb_file))
@@ -111,16 +123,6 @@ def main():
         for bam in args.bam_files:
             logging.debug("Opening BAM file: {}".format(bam))
             bams.append(stack.enter_context(pysam.AlignmentFile(bam, 'rb')))
-
-        samples = args.bam_files
-
-        if len(set(os.path.split(bam)[0] for bam in args.bam_files)) == 1:
-            samples = [os.path.split(bam)[1] for bam in args.bam_files]
-            if len(set(sample.split('.', 1)[1] for sample in samples)) == 1:
-                samples = [sample.split('.', 1)[0] for sample in samples]
-
-        count_types = [ "total_counts", "primary_counts", "unique_counts" ]
-        output_fields = [ "record_id", "start", "end", "strand", "product" ]
 
         writers = []
 
