@@ -145,32 +145,33 @@ def main():
                 else:
                     logging.debug("Fetching counts for feature type: {}".format(feature.type))
 
-                region = (record.id, feature.location.start, feature.location.end)
+                start = feature.location.start + 1
+                end = feature.location.end
 
-                logging.debug("Querying region: {}:{}-{}".format(*region))
+                region = "{}:{}-{}".format(record.id, start, end)
+                logging.debug("Querying region: {}".format(region))
 
                 counts = defaultdict(dict)
 
                 for sample, bam in zip(samples, bams):
                     logging.debug("Getting counts for sample: {}".format(sample))
 
-                    total_count = 0
-                    primary_count = 0
-                    unique_count = 0
+                    total_counts = bam.count(region=region)
 
-                    for alignment in bam.fetch(*region):
-                        if not alignment.is_secondary:
-                            primary_count += 1
-                        if alignment.mapping_quality == 255:
-                            unique_count += 1
-                        total_count += 1
+                    primary_counts = bam.count(
+                        region=region,
+                        read_callback=lambda aln: not aln.is_secondary)
 
-                    counts["total_counts"][sample] = total_count
-                    counts["primary_counts"][sample] = primary_count
-                    counts["unique_counts"][sample] = unique_count
+                    unique_counts = bam.count(
+                        region=region,
+                        read_callback=lambda aln: aln.mapping_quality == 255)
+
+                    counts["total_counts"][sample] = total_counts
+                    counts["primary_counts"][sample] = primary_counts
+                    counts["unique_counts"][sample] = unique_counts
 
                 row_data = {
-                    "region": "{}:{}-{}".format(*region),
+                    "region": region,
                     "strand": feature.strand,
                     "type": feature.type,
                     "product": product,
