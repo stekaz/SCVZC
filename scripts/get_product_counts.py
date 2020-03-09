@@ -84,14 +84,6 @@ def get_option_parser():
     return parser
 
 
-def iter_qualifiers(gb_rec, name=None):
-    for feature in gb_rec.features:
-        qualifier_name = feature.qualifiers.get(name)
-        if qualifier_name is not None:
-            [qualifier] = qualifier_name
-            yield qualifier, feature.location
-
-
 def main():
 
     parser = get_option_parser()
@@ -142,10 +134,19 @@ def main():
         for record in SeqIO.parse(gb_fh, "genbank"):
             logging.info("Processing record ID: {}".format(record.id))
 
-            for product, location in iter_qualifiers(record, name='product'):
-                logging.info("Fetching counts for product: {}".format(product))
+            for feature in record.features:
 
-                region = (record.id, location.start, location.end)
+                if feature.type not in ['source', 'CDS', 'mat_peptide']:
+                    continue
+
+                [product] = feature.qualifiers.get('product', [None])
+                if product is not None:
+                    logging.debug("Fetching counts for product: {}".format(product))
+                else:
+                    logging.debug("Fetching counts for feature type: {}".format(feature.type))
+
+                region = (record.id, feature.location.start, feature.location.end)
+
                 logging.debug("Querying region: {}:{}-{}".format(*region))
 
                 counts = defaultdict(dict)
@@ -170,9 +171,9 @@ def main():
 
                 row_data = {
                     "record_id": record.id,
-                    "start": location.start,
-                    "end": location.end,
-                    "strand": location.strand,
+                    "start": feature.location.start,
+                    "end": feature.location.end,
+                    "strand": feature.location.strand,
                     "product": product,
                 }
 
