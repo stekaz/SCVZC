@@ -103,7 +103,7 @@ def main():
             samples = [sample.split('.', 1)[0] for sample in samples]
 
     count_types = [ "total_counts", "primary_counts", "unique_counts" ]
-    output_fields = [ "region", "strand", "product" ]
+    output_fields = [ "region", "strand", "type", "product" ]
 
     with ExitStack() as stack:
 
@@ -172,6 +172,7 @@ def main():
                 row_data = {
                     "region": "{}:{}-{}".format(*region),
                     "strand": feature.strand,
+                    "type": feature.type,
                     "product": product,
                 }
 
