@@ -103,7 +103,7 @@ def main():
             samples = [sample.split('.', 1)[0] for sample in samples]
 
     count_types = [ "total_counts", "primary_counts", "unique_counts" ]
-    output_fields = [ "record_id", "start", "end", "strand", "product" ]
+    output_fields = [ "region", "strand", "product" ]
 
     with ExitStack() as stack:
 
@@ -170,10 +170,8 @@ def main():
                     counts["unique_counts"][sample] = unique_count
 
                 row_data = {
-                    "record_id": record.id,
-                    "start": feature.location.start,
-                    "end": feature.location.end,
-                    "strand": feature.location.strand,
+                    "region": "{}:{}-{}".format(*region),
+                    "strand": feature.strand,
                     "product": product,
                 }
 
