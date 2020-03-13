@@ -30,7 +30,6 @@ import os
 import sys
 import pysam
 
-from collections import defaultdict
 from contextlib import ExitStack
 
 from Bio import SeqIO
@@ -59,10 +58,35 @@ def get_option_parser():
 
     group = parser.add_argument_group('output options')
     group.add_argument(
-        '-o', '--outdir',
-        help='Write output files to DIR',
-        default=os.getcwd(),
-        metavar='DIR')
+        '-o',
+        help='Write output to FILE',
+        dest='outfile',
+        default='-',
+        metavar='FILE')
+
+    group = parser.add_argument_group('filter options')
+    group.add_argument(
+        '-q',
+        help='Only include reads with mapping quality >= INT [0]',
+        dest='mapping_quality',
+        metavar='INT',
+        type=int)
+    group.add_argument(
+        '-f',
+        help='Only include reads with all of the FLAGs in INT present [0]',
+        dest='include_flags',
+        default=[],
+        action='append',
+        metavar='INT',
+        type=int)
+    group.add_argument(
+        '-F',
+        help='Only include reads with none of the FLAGS in INT present [0]',
+        dest='exclude_flags',
+        default=[],
+        action='append',
+        metavar='INT',
+        type=int)
 
     group = parser.add_argument_group('logging options')
     group.add_argument(
@@ -84,14 +108,36 @@ def get_option_parser():
     return parser
 
 
+class MappingQualityFilter:
+    def __init__(self, quality):
+        self.quality = quality
+
+    def __call__(self, alignment):
+        return alignment.mapping_quality >= self.quality
+
+
+class IncludeFlagFilter:
+    def __init__(self, flag):
+        self.flag = flag
+
+    def __call__(self, alignment):
+        return (alignment.flag & self.flag) == self.flag
+
+
+class ExcludeFlagFilter:
+    def __init__(self, flag):
+        self.flag = flag
+
+    def __call__(self, alignment):
+        return (alignment.flag & self.flag) == 0
+
+
 def main():
 
     parser = get_option_parser()
     args = parser.parse_args()
 
     logging.basicConfig(format='%(levelname)s: %(message)s', level=args.loglevel)
-
-    os.makedirs(args.outdir, exist_ok=True)
 
     samples = args.bam_files
 
@@ -102,8 +148,23 @@ def main():
         if len(set(sample.split('.', 1)[1] for sample in samples)) == 1:
             samples = [sample.split('.', 1)[0] for sample in samples]
 
-    count_types = [ "total_counts", "primary_counts", "unique_counts" ]
     output_fields = [ "region", "strand", "type", "product" ]
+
+    filters = []
+
+    if args.mapping_quality:
+        logging.info("Applying MAPQ filter: {}".format(str(args.mapping_quality)))
+        filters.append(MappingQualityFilter(args.mapping_quality))
+
+    for flag in args.include_flags:
+        logging.info("Only including reads with all of the FLAGs in: {}".format(str(flag)))
+        filters.append(IncludeFlagFilter(flag))
+
+    for flag in args.exclude_flags:
+        logging.info("Only including reads with none of the FLAGs in: {}".format(str(flag)))
+        filters.append(ExcludeFlagFilter(flag))
+
+    read_callback = lambda aln: all(fltr(aln) for fltr in filters)
 
     with ExitStack() as stack:
 
@@ -116,20 +177,14 @@ def main():
             logging.debug("Opening BAM file: {}".format(bam))
             bams.append(stack.enter_context(pysam.AlignmentFile(bam, 'rb')))
 
-        writers = []
+        if args.outfile and args.outfile != '-':
+            logging.debug("Opening output file: {}".format(args.outfile))
+            out_fh = stack.enter_context(open(args.outfile, 'w'))
+        else:
+            out_fh = sys.stdout
 
-        for count_type in count_types:
-            gb_filestem = os.path.splitext(os.path.basename(args.gb_file))[0]
-            count_filename = "{}.{}.csv".format(gb_filestem, count_type)
-            count_filepath = os.path.join(args.outdir, count_filename)
-
-            logging.debug("Opening counts file: {}".format(count_filepath))
-            counts_fh = stack.enter_context(open(count_filepath, 'w'))
-
-            writer = csv.DictWriter(counts_fh, fieldnames=output_fields + samples)
-            writer.writeheader()
-
-            writers.append(writer)
+        writer = csv.DictWriter(out_fh, fieldnames=output_fields + samples)
+        writer.writeheader()
 
         for record in SeqIO.parse(gb_fh, "genbank"):
             logging.info("Processing record ID: {}".format(record.id))
@@ -151,34 +206,20 @@ def main():
                 region = "{}:{}-{}".format(record.id, start, end)
                 logging.debug("Querying region: {}".format(region))
 
-                counts = defaultdict(dict)
+                counts = dict()
 
                 for sample, bam in zip(samples, bams):
                     logging.debug("Getting counts for sample: {}".format(sample))
 
-                    total_counts = bam.count(region=region)
+                    count = bam.count(region=region, read_callback=read_callback)
+                    counts[sample] = count
 
-                    primary_counts = bam.count(
-                        region=region,
-                        read_callback=lambda aln: not aln.is_secondary)
-
-                    unique_counts = bam.count(
-                        region=region,
-                        read_callback=lambda aln: aln.mapping_quality == 255)
-
-                    counts["total_counts"][sample] = total_counts
-                    counts["primary_counts"][sample] = primary_counts
-                    counts["unique_counts"][sample] = unique_counts
-
-                row_data = {
+                writer.writerow({
                     "region": region,
                     "strand": feature.strand,
                     "type": feature.type,
                     "product": product,
-                }
-
-                for count_type, writer in zip(count_types, writers):
-                    writer.writerow({**row_data, **counts[count_type]})
+                    **counts})
 
 
 if __name__ == '__main__':
